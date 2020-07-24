@@ -13,16 +13,19 @@
 //9 = Arduino UNO CAN Shield
 //const int SPI_CS_PIN = 9;
 //3 = Arduino MKR CAN Shield
-const int SPI_CS_PIN = 3;
+const int SPI_CS_PIN = 10;
 MCP_CAN CAN(SPI_CS_PIN); // Set CS pin
 int genCnt = 0;
 int cnt = 0;
 int listLen = 10;
 int carConCnt = 0;
 int configCnt = 0;
+int i = 0;
+int i_change = 1;
 unsigned char stmp[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 unsigned long address;
 unsigned long addrLi[10] = {0x217FFC, 0x2803008, 0x3C01428, 0x381526C, 0x3600008, 0xA10408, 0x2006428, 0x1A0600A, 0x2616CFC, 0x1017FFC};
+unsigned char volvoClusterActivate[8] = {0xCC, 0x51, 0xB2, 0x2, 0x80, 0x0, 0x0, 0x0};
 /*
  * addrLi[0] = Speed/KeepAlive
  * addrLi[1] = RPM/Backlights
@@ -44,6 +47,7 @@ unsigned char defaultData[10][8] = {
     {0x00, 0x01, 0x05, 0xBC, 0x05, 0xA0, 0x40, 0x40}, //Time/GasTank , 0x381526C
     {0x00, 0x00, 0xB0, 0x60, 0x30, 0x00, 0x00, 0x00}, //Brake system Keep alive , 0x3600008
     {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, //Blinker , 0xA10408
+    //{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0A}, //Blinker , 0xA10408
     {0x01, 0xE3, 0xE0, 0x00, 0x00, 0x00, 0x00, 0x00}, //Anti-Skid , 0x2006428
     {0x00, 0x00, 0x00, 0x00, 0x00, 0xBE, 0x49, 0x00}, //Aibag Light , 0x1A0600A
     {0x0B, 0x42, 0x00, 0x00, 0xFD, 0x1F, 0x00, 0xFF}, //4C keep alive / prevent error , 0x2616CFC
@@ -261,7 +265,8 @@ void genCC(long address, byte stmp[])
   * Convert Celsius to Fahrenheit
   */
 double celsToFahr(double temp){
-  return ((temp * (9/5))+32);
+  //return ((temp * (9/5))+32);
+  return temp;
 }
  /*
   * Set the digital outdoor temperature with fahrenheit input 
@@ -396,6 +401,7 @@ void setRpm(int rpm){
  * Set brightness of all lights
  */
  void setTotalBrightness(int value){
+  //if(value >= 0 && value <= 256){
   if(value >= 0 && value <= 256){
     setLcdBrightness(value);
     setOverheadBrightness(value);
@@ -405,13 +411,29 @@ void setRpm(int rpm){
     //SERIAL.println("Value out of range");
   }
  }
+
+  void setBlinker(int value){
+  if(value == 0){
+    defaultData[5][7] = 0x08;
+  }
+  if(value == 1){
+    defaultData[5][7] = 0x0A;
+  }
+  if(value == 2){
+    defaultData[5][7] = 0x0C;
+  }
+  if(value == 3){
+    defaultData[5][7] = 0x0E;
+  }
+ }
+ 
 void setup()
 {
   SERIAL.begin(115200);
   //while(!SerialUSB); //Serial monitor must be open for program to run.
   //Prevents messages from being skipped because the arduino passes them before the serial connection is initialized.
   randomSeed(analogRead(0));
-  while (CAN_OK != CAN.begin(CAN_125KBPS)) // init can bus : baudrate = 500k
+  while (CAN_OK != CAN.begin(CAN_125KBPS,MCP_8MHz)) // init can bus : baudrate = 500k
   {
     SERIAL.println("CAN BUS Shield init fail");
     SERIAL.println("Init CAN BUS Shield again");
@@ -421,12 +443,14 @@ void setup()
   initSRS();
   init4C();
   updateTime(clockToDecimal(random(0, 13), random(0, 60), random(0,2)));
-  setOutdoorTemp(random(-49,177));
-  setCoolantGauge(random(0,100));
-  setCarSpeed(random(0,160));
-  setGasLevel(random(0,100));
-  setRpm(random(502,8000));
-  setTotalBrightness(random(0,257));
+  setOutdoorTemp(30);
+  setCoolantGauge(0);
+  setCarSpeed(0);
+  setGasLevel(0);
+  setRpm(0);
+  //setLcdBrightness(260);
+  setLcdBrightness(200);
+  setOverheadBrightness(10);
 }
 /*
  * Main message organization 
@@ -465,6 +489,7 @@ void simDim(){
     //SERIAL.println(address);
     CAN.sendMsgBuf(address, 1, 8, stmp);
     delay(20); // send data per 20ms
+    
   }
   cnt++;
   if (cnt == listLen)
@@ -484,6 +509,42 @@ void simDim(){
 void loop()
 {
   simDim();
+  i=i+1;
+  /*if(i==50){
+  #  SERIAL.println(i);
+  #    setRpm(502beg);
+      setCarSpeed(0);
+  }*/
+  if(i==50){
+    setBlinker(0);
+  }
+  if(i==100){
+      //setRpm(502);
+      //setCarSpeed(150);      
+      //setBlinker(3);
+      i=0;      
+  }
+   if (Serial.available() > 0) 
+  {
+    char incomingByte = Serial.read();
+
+    if(incomingByte =='s')
+    {
+      CAN.setMode(MODE_NORMAL);
+      Serial.print("Sending CAN request\n");
+
+      CAN.sendMsgBuf(0xFFFFE, CAN_EXTID, 8, volvoClusterActivate);
+      CAN.setMode(MODE_LISTENONLY);
+    }
+    if(incomingByte =='d')
+    {
+      CAN.setMode(MODE_NORMAL);
+      Serial.print("Sending CAN request\n");
+
+      CAN.sendMsgBuf(addrLi[5], CAN_EXTID, 8, volvoClusterActivate);
+      CAN.setMode(MODE_LISTENONLY);
+    }
+  }
 }
 
 // END FILE
